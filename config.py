@@ -8,11 +8,11 @@ class Config:
     """Configuration settings for the document search application."""
     
     # Anthropic API settings
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
     
     # Document processing settings
     DOCUMENTS_DIR = os.getenv('DOCUMENTS_DIR', 'documents')
-    CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '500'))
+    CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '150'))  # Lowered from 500 to 150
     CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '50'))
     
     # Search settings
