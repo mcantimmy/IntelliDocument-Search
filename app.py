@@ -5,6 +5,27 @@ import json
 from document_search import DocumentSearchEngine
 import os
 
+HISTORY_FILE = "query_history.json"
+HISTORY_LIMIT = 3
+
+def load_query_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                history = json.load(f)
+            if isinstance(history, list):
+                return history[:HISTORY_LIMIT]
+        except Exception:
+            pass
+    return []
+
+def save_query_history(history):
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history[:HISTORY_LIMIT], f)
+    except Exception:
+        pass
+
 # Page configuration
 st.set_page_config(
     page_title="IntelliDocument Search",
@@ -72,6 +93,51 @@ def main():
         st.error("Failed to load search engine. Please check your configuration.")
         return
     
+    # Load query history
+    query_history = load_query_history()
+    
+    # Dropdown for past queries
+    #st.markdown('<div class="search-container">', unsafe_allow_html=True)
+    selected_past_query = None
+    if query_history:
+        selected_past_query = st.selectbox(
+            "Recent Queries",
+            ["(Select a recent query)"] + query_history,
+            index=0,
+            help="Select a past query to populate the search bar"
+        )
+    
+    # Search type
+    search_type = st.session_state.get("search_type", "Natural Language")
+    # Search input
+    if search_type == "Natural Language":
+        default_query = selected_past_query if selected_past_query and selected_past_query != "(Select a recent query)" else ""
+        query = st.text_area(
+            "Enter your search query",
+            value=default_query,
+            placeholder="Ask a question or describe what you're looking for...",
+            height=100,
+            help="Use natural language to search for information in your documents",
+            key="search_query_area"
+        )
+    else:
+        default_query = selected_past_query if selected_past_query and selected_past_query != "(Select a recent query)" else ""
+        keywords_input = st.text_input(
+            "Enter keywords (comma-separated)",
+            value=default_query,
+            placeholder="AI, revenue, Germany, 2024",
+            help="Enter keywords separated by commas for keyword-based search",
+            key="search_query_input"
+        )
+        query = keywords_input
+    
+    # Search button
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        search_button = st.button("🔍 Search", type="primary", use_container_width=True)
+    
+    #st.markdown('</div>', unsafe_allow_html=True)
+    
     # Sidebar for filters and settings
     with st.sidebar:
         st.header("🔧 Search Settings")
@@ -80,7 +146,9 @@ def main():
         search_type = st.selectbox(
             "Search Type",
             ["Natural Language", "Keyword Search"],
-            help="Choose between natural language queries or keyword-based search"
+            index=["Natural Language", "Keyword Search"].index(search_type),
+            help="Choose between natural language queries or keyword-based search",
+            key="search_type"
         )
         
         # Number of results
@@ -142,34 +210,12 @@ def main():
         if st.button("Clear All Filters"):
             st.rerun()
     
-    # Main content area
-    st.markdown('<div class="search-container">', unsafe_allow_html=True)
-    
-    # Search input
-    if search_type == "Natural Language":
-        query = st.text_area(
-            "Enter your search query",
-            placeholder="Ask a question or describe what you're looking for...",
-            height=100,
-            help="Use natural language to search for information in your documents"
-        )
-    else:
-        keywords_input = st.text_input(
-            "Enter keywords (comma-separated)",
-            placeholder="AI, revenue, Germany, 2024",
-            help="Enter keywords separated by commas for keyword-based search"
-        )
-        query = keywords_input
-    
-    # Search button
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        search_button = st.button("🔍 Search", type="primary", use_container_width=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
     # Search results
     if search_button and query:
+        # Update query history
+        if query.strip() and (not query_history or query != query_history[0]):
+            new_history = [query] + [q for q in query_history if q != query]
+            save_query_history(new_history)
         with st.spinner("Searching documents..."):
             try:
                 if search_type == "Natural Language":
@@ -227,7 +273,7 @@ def main():
                                    <strong>Date:</strong> {result.get('date', 'Unknown')} | 
                                    <strong>Location:</strong> {result.get('location', 'Unknown')}</p>
                                 <p><strong>Relevance Score:</strong> <span class="score-badge">{result['relevance_score']:.3f}</span></p>
-                                <p><strong>Content:</strong> {result['chunk_text'][:300]}{'...' if len(result['chunk_text']) > 300 else ''}</p>
+                                <p><strong>Content:</strong> {result['chunk_text'][:500]}{'...' if len(result['chunk_text']) > 500 else ''}</p>
                             </div>
                             """, unsafe_allow_html=True)
                             
