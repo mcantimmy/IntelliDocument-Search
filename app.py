@@ -95,9 +95,22 @@ def main():
     
     # Load query history
     query_history = load_query_history()
-    
+
+    # --- SESSION STATE MANAGEMENT ---
+    if 'search_type' not in st.session_state:
+        st.session_state['search_type'] = "Natural Language"
+    if 'search_query' not in st.session_state:
+        st.session_state['search_query'] = ""
+    if 'search_results' not in st.session_state:
+        st.session_state['search_results'] = None
+    if 'last_search' not in st.session_state:
+        st.session_state['last_search'] = None
+    if 'feedback_given' not in st.session_state:
+        st.session_state['feedback_given'] = set()
+    if 'ai_answer' not in st.session_state:
+        st.session_state['ai_answer'] = None
+
     # Dropdown for past queries
-    #st.markdown('<div class="search-container">', unsafe_allow_html=True)
     selected_past_query = None
     if query_history:
         selected_past_query = st.selectbox(
@@ -106,50 +119,57 @@ def main():
             index=0,
             help="Select a past query to populate the search bar"
         )
+        # If a past query is selected, set it in session_state and trigger a search
+        if (
+            selected_past_query
+            and selected_past_query != "(Select a recent query)"
+            and selected_past_query != st.session_state['search_query']
+        ):
+            st.session_state['search_query'] = selected_past_query
+            st.session_state['last_search'] = selected_past_query
+            st.session_state['search_results'] = None  # Will trigger new search
+            st.experimental_rerun()
     
-    # Search type
-    search_type = st.session_state.get("search_type", "Natural Language")
+    # Search type (let the widget manage session state)
+    search_type = st.sidebar.selectbox(
+        "Search Type",
+        ["Natural Language", "Keyword Search"],
+        index=["Natural Language", "Keyword Search"].index(st.session_state.get('search_type', "Natural Language")),
+        help="Choose between natural language queries or keyword-based search",
+        key="search_type"
+    )
+    
     # Search input
     if search_type == "Natural Language":
-        default_query = selected_past_query if selected_past_query and selected_past_query != "(Select a recent query)" else ""
         query = st.text_area(
             "Enter your search query",
-            value=default_query,
+            value=st.session_state['search_query'],
             placeholder="Ask a question or describe what you're looking for...",
             height=100,
             help="Use natural language to search for information in your documents",
             key="search_query_area"
         )
     else:
-        default_query = selected_past_query if selected_past_query and selected_past_query != "(Select a recent query)" else ""
-        keywords_input = st.text_input(
+        query = st.text_input(
             "Enter keywords (comma-separated)",
-            value=default_query,
+            value=st.session_state['search_query'],
             placeholder="AI, revenue, Germany, 2024",
             help="Enter keywords separated by commas for keyword-based search",
             key="search_query_input"
         )
-        query = keywords_input
+    st.session_state['search_query'] = query
     
     # Search button
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         search_button = st.button("🔍 Search", type="primary", use_container_width=True)
     
-    #st.markdown('</div>', unsafe_allow_html=True)
-    
     # Sidebar for filters and settings
     with st.sidebar:
         st.header("🔧 Search Settings")
         
         # Search type
-        search_type = st.selectbox(
-            "Search Type",
-            ["Natural Language", "Keyword Search"],
-            index=["Natural Language", "Keyword Search"].index(search_type),
-            help="Choose between natural language queries or keyword-based search",
-            key="search_type"
-        )
+        # This selectbox is now handled by st.session_state['search_type']
         
         # Number of results
         top_k = st.slider("Number of Results", 1, 20, 5)
@@ -211,11 +231,13 @@ def main():
             st.rerun()
     
     # Search results
-    if search_button and query:
+    if (search_button or st.session_state['search_results'] is None) and query.strip():
         # Update query history
         if query.strip() and (not query_history or query != query_history[0]):
             new_history = [query] + [q for q in query_history if q != query]
             save_query_history(new_history)
+        # Clear previous answer
+        st.session_state['ai_answer'] = None
         with st.spinner("Searching documents..."):
             try:
                 if search_type == "Natural Language":
@@ -225,26 +247,8 @@ def main():
                     # Generate answer if results found
                     if results:
                         answer_result = search_engine.answer_question(query, results)
+                        st.session_state['ai_answer'] = answer_result
                         
-                        # Display answer
-                        st.subheader("🤖 AI Answer")
-                        st.markdown(f"**Answer:** {answer_result['answer']}")
-                        
-                        # Confidence score
-                        confidence = answer_result['confidence']
-                        st.progress(confidence)
-                        st.caption(f"Confidence: {confidence:.2%}")
-                        
-                        # Sources
-                        if answer_result['sources']:
-                            st.subheader("📚 Sources")
-                            for i, source in enumerate(answer_result['sources']):
-                                with st.expander(f"Source {i+1}: {source['title']}"):
-                                    st.write(f"**Author:** {source['author']}")
-                                    st.write(f"**Date:** {source['date']}")
-                                    st.write(f"**Relevance Score:** {source['relevance_score']:.3f}")
-                                    st.write(f"**Content:** {source['chunk_text']}")
-                    
                 else:
                     # Perform keyword search
                     keywords = [k.strip() for k in query.split(',') if k.strip()]
@@ -261,48 +265,69 @@ def main():
                     results.sort(key=lambda x: x.get('title', ''))
                 
                 # Display results
-                if results:
-                    st.subheader(f"📄 Search Results ({len(results)} found)")
-                    
-                    for i, result in enumerate(results):
-                        with st.container():
-                            st.markdown(f"""
-                            <div class="result-card">
-                                <h4>{result['title']}</h4>
-                                <p><strong>Author:</strong> {result.get('author', 'Unknown')} | 
-                                   <strong>Date:</strong> {result.get('date', 'Unknown')} | 
-                                   <strong>Location:</strong> {result.get('location', 'Unknown')}</p>
-                                <p><strong>Relevance Score:</strong> <span class="score-badge">{result['relevance_score']:.3f}</span></p>
-                                <p><strong>Content:</strong> {result['chunk_text'][:500]}{'...' if len(result['chunk_text']) > 500 else ''}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            # Feedback mechanism
-                            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-                            with col1:
-                                if st.button(f"👍 Relevant", key=f"relevant_{i}"):
-                                    search_engine.update_relevance_score(result['chunk_id'], 1.0)
-                                    st.success("Feedback recorded!")
-                            with col2:
-                                if st.button(f"👎 Not Relevant", key=f"not_relevant_{i}"):
-                                    search_engine.update_relevance_score(result['chunk_id'], 0.0)
-                                    st.success("Feedback recorded!")
-                            with col3:
-                                if st.button(f"🔍 More Like This", key=f"more_{i}"):
-                                    # Could implement similar document search here
-                                    st.info("Feature coming soon!")
-                            with col4:
-                                if st.button(f"📋 Copy", key=f"copy_{i}"):
-                                    st.write("Content copied to clipboard!")
-                            
-                            st.divider()
-                
-                else:
-                    st.warning("No results found. Try adjusting your search terms or filters.")
+                st.session_state['search_results'] = results # Store results in session state
+                st.session_state['last_search'] = query
+                st.session_state['feedback_given'] = set()
+                st.experimental_rerun() # Rerun to update UI
                     
             except Exception as e:
                 st.error(f"Error during search: {e}")
     
+    results = st.session_state['search_results']
+
+    # --- AI ANSWER DISPLAY ---
+    if search_type == "Natural Language" and st.session_state.get('ai_answer'):
+        answer_result = st.session_state['ai_answer']
+        st.subheader("🤖 AI Answer")
+        st.markdown(f"**Answer:** {answer_result['answer']}")
+        confidence = answer_result.get('confidence', 0)
+        st.progress(confidence)
+        st.caption(f"Confidence: {confidence:.2%}")
+        if answer_result.get('sources'):
+            st.subheader("📚 Sources")
+            for i, source in enumerate(answer_result['sources']):
+                with st.expander(f"Source {i+1}: {source['title']}"):
+                    st.write(f"**Author:** {source['author']}")
+                    st.write(f"**Date:** {source['date']}")
+                    st.write(f"**Relevance Score:** {source['relevance_score']:.3f}")
+                    st.write(f"**Content:** {source['chunk_text']}")
+
+    # --- FEEDBACK LOGIC & RESULTS DISPLAY ---
+    if results:
+        st.subheader(f"📄 Search Results ({len(results)} found)")
+        for i, result in enumerate(results):
+            with st.container():
+                doc_link = f"{result['doc_path']}#page-{result['page_number']}"
+                st.markdown(f"""
+                <div class="result-card">
+                    <h4><a href="{doc_link}" target="_blank">{result['title']}</a></h4>
+                    <p><strong>Author:</strong> {result.get('author', 'Unknown')} | 
+                       <strong>Date:</strong> {result.get('date', 'Unknown')} | 
+                       <strong>Location:</strong> {result.get('location', 'Unknown')}</p>
+                    <p><strong>Page:</strong> {result.get('page_number', '?')} | <strong>Paragraph:</strong> {result.get('paragraph_number', '?')}</p>
+                    <p><strong>Relevance Score:</strong> <span class="score-badge">{result['relevance_score']:.3f}</span></p>
+                    <p><strong>Content:</strong> {result['chunk_text'][:300]}{'...' if len(result['chunk_text']) > 300 else ''}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+                with col1:
+                    if st.button(f"👍 Relevant", key=f"relevant_{i}"):
+                        search_engine.update_relevance_score(result['chunk_id'], 1.0)
+                        st.session_state['feedback_given'].add(i)
+                        st.success("Feedback recorded!")
+                with col2:
+                    if st.button(f"👎 Not Relevant", key=f"not_relevant_{i}"):
+                        search_engine.update_relevance_score(result['chunk_id'], 0.0)
+                        st.session_state['feedback_given'].add(i)
+                        st.success("Feedback recorded!")
+                with col3:
+                    if st.button(f"🔍 More Like This", key=f"more_{i}"):
+                        st.info("Feature coming soon!")
+                with col4:
+                    if st.button(f"📋 Copy", key=f"copy_{i}"):
+                        st.write("Content copied to clipboard!")
+                st.divider()
+
     # Document overview
     with st.expander("📚 Document Overview"):
         if all_metadata:
