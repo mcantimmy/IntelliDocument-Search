@@ -51,16 +51,20 @@ class DocumentSearchEngine:
                 # Extract metadata from content
                 metadata = self._extract_metadata(content, file_path.name)
                 
-                # Split content into chunks
-                chunks = self._split_into_chunks(content)
+                # Split content into chunks and get page/paragraph info
+                chunks, chunk_info = self._split_into_chunks_with_info(content)
                 
                 for i, chunk in enumerate(chunks):
+                    info = chunk_info[i]
                     self.document_chunks.append(chunk)
                     self.metadata.append({
                         **metadata,
                         'chunk_id': i,
                         'total_chunks': len(chunks),
-                        'chunk_text': chunk[:500] + "..." if len(chunk) > 500 else chunk
+                        'chunk_text': chunk[:500] + "..." if len(chunk) > 500 else chunk,
+                        'page_number': info['page_number'],
+                        'paragraph_number': info['paragraph_number'],
+                        'doc_path': str(file_path)
                     })
                 
                 self.documents.append({
@@ -125,21 +129,47 @@ class DocumentSearchEngine:
         
         return metadata
     
-    def _split_into_chunks(self, content: str, chunk_size: int = None, overlap: int = None) -> List[str]:
-        """Split document content into overlapping chunks."""
+    def _split_into_chunks_with_info(self, content: str, chunk_size: int = None, overlap: int = None):
         chunk_size = chunk_size or Config.CHUNK_SIZE
         overlap = overlap or Config.CHUNK_OVERLAP
-        
         words = content.split()
+        # Simulate pages: every 300 words = 1 page
+        PAGE_WORDS = 300
+        # Split into paragraphs
+        paragraphs = [p for p in content.split('\n\n') if p.strip()]
+        para_word_starts = []
+        word_count = 0
+        for p in paragraphs:
+            para_word_starts.append(word_count)
+            word_count += len(p.split())
         chunks = []
-        
+        chunk_info = []
         for i in range(0, len(words), chunk_size - overlap):
             chunk_words = words[i:i + chunk_size]
             chunk = ' '.join(chunk_words)
-            if chunk.strip():
-                chunks.append(chunk)
-        
-        return chunks
+            if not chunk.strip():
+                continue
+            # Page number (1-based)
+            page_number = (i // PAGE_WORDS) + 1
+            # Paragraph number (1-based, on that page)
+            para_idx = 0
+            for j, start in enumerate(para_word_starts):
+                if start > i:
+                    break
+                para_idx = j
+            # Paragraph number within the page
+            para_on_page = 1
+            for j, start in enumerate(para_word_starts):
+                if start >= (page_number-1)*PAGE_WORDS:
+                    if start > i:
+                        break
+                    para_on_page = j - sum(1 for s in para_word_starts if s < (page_number-1)*PAGE_WORDS) + 1
+            chunks.append(chunk)
+            chunk_info.append({
+                'page_number': page_number,
+                'paragraph_number': para_on_page
+            })
+        return chunks, chunk_info
     
     def _create_embeddings(self):
         """Create embeddings for all document chunks."""
@@ -328,6 +358,9 @@ class DocumentSearchEngine:
                 metadata = self.metadata[i].copy()
                 metadata['relevance_score'] = score / len(keywords)  # Normalize score
                 metadata['chunk_text'] = chunk
+                # Ensure doc_path is present
+                if 'doc_path' not in metadata:
+                    metadata['doc_path'] = self.metadata[i].get('doc_path', '')
                 results.append(metadata)
         
         # Sort by relevance score and return top_k
