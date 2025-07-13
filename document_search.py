@@ -60,7 +60,7 @@ class DocumentSearchEngine:
                         **metadata,
                         'chunk_id': i,
                         'total_chunks': len(chunks),
-                        'chunk_text': chunk[:300] + "..." if len(chunk) > 300 else chunk
+                        'chunk_text': chunk[:500] + "..." if len(chunk) > 500 else chunk
                     })
                 
                 self.documents.append({
@@ -287,7 +287,7 @@ class DocumentSearchEngine:
                     'author': result.get('author', 'Unknown'),
                     'date': result.get('date', 'Unknown'),
                     'relevance_score': result['relevance_score'],
-                    'chunk_text': result['chunk_text'][:300] + "..." if len(result['chunk_text']) > 300 else result['chunk_text']
+                    'chunk_text': result['chunk_text'][:500] + "..." if len(result['chunk_text']) > 500 else result['chunk_text']
                 })
             
             return {
