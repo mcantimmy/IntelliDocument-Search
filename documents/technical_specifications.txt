@@ -1,6 +1,6 @@
 AI Document Search Platform - Technical Specifications
 Date: January 10, 2024
-Author: David Chen, Lead AI Engineer
+Author: John Doe, Lead AI Engineer
 Location: San Francisco, CA
 
 System Architecture
